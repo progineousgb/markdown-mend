@@ -6,7 +6,11 @@ namespace Progineous\Mend\Tests;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Illuminate\Container\Container;
+use Illuminate\Support\Facades\Facade;
+use Progineous\Mend\Facades\Mend as MendFacade;
 use Progineous\Mend\Mend;
+use Progineous\Mend\MendServiceProvider;
 use Progineous\Mend\Repairer;
 
 final class RepairTest extends TestCase
@@ -29,32 +33,45 @@ final class RepairTest extends TestCase
         $this->assertSame(Mend::repair($input), (new Repairer())->repair($input));
     }
 
-    public function test_laravel_wiring_is_present_without_booting_the_framework(): void
+    public function test_composer_declares_laravel_discovery_without_requiring_laravel(): void
     {
-        $root = dirname(__DIR__);
-        $composer = json_decode((string) file_get_contents($root . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        $composer = json_decode((string) file_get_contents(dirname(__DIR__) . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertIsArray($composer);
 
-        $this->assertSame('progineousgb/markdown-mend', $composer['name']);
-        $this->assertSame('>=8.2', $composer['require']['php']);
-        $this->assertArrayNotHasKey('illuminate/support', $composer['require']);
-        $this->assertStringContainsString('^12.0 || ^13.0', $composer['suggest']['illuminate/support']);
+        $this->assertSame('progineousgb/markdown-mend', $composer['name'] ?? null);
+        $this->assertSame(['php' => '>=8.2'], $composer['require'] ?? null);
+        $suggest = $composer['suggest'] ?? [];
+        $this->assertIsArray($suggest);
+        $this->assertIsString($suggest['illuminate/support'] ?? null);
+        $this->assertStringContainsString('^12.0 || ^13.0', $suggest['illuminate/support']);
+        $extra = $composer['extra'] ?? [];
+        $this->assertIsArray($extra);
         $this->assertSame(
-            'Progineous\\Mend\\MendServiceProvider',
-            $composer['extra']['laravel']['providers'][0]
+            [
+                'providers' => [MendServiceProvider::class],
+                'aliases' => ['Mend' => MendFacade::class],
+            ],
+            $extra['laravel'] ?? null
         );
-        $this->assertSame(
-            'Progineous\\Mend\\Facades\\Mend',
-            $composer['extra']['laravel']['aliases']['Mend']
-        );
+    }
 
-        $provider = (string) file_get_contents($root . '/src/MendServiceProvider.php');
-        $this->assertStringContainsString('extends ServiceProvider', $provider);
-        $this->assertStringContainsString('Repairer::class', $provider);
-        $this->assertStringNotContainsString('Mend::repair', $provider);
+    public function test_service_provider_and_facade_work_in_a_laravel_container(): void
+    {
+        $app = new Container();
+        // A bare container is enough for register() and facade resolution; the
+        // full Foundation application is not a dev dependency.
+        // @phpstan-ignore argument.type
+        (new MendServiceProvider($app))->register();
+        // @phpstan-ignore argument.type
+        Facade::setFacadeApplication($app);
 
-        $facade = (string) file_get_contents($root . '/src/Facades/Mend.php');
-        $this->assertStringContainsString('extends Facade', $facade);
-        $this->assertStringContainsString('return Repairer::class;', $facade);
+        try {
+            $this->assertSame($app->make(Repairer::class), $app->make(Repairer::class));
+            $this->assertSame("```\ncode\n```\n", MendFacade::repair("```\ncode"));
+        } finally {
+            Facade::clearResolvedInstances();
+            Facade::setFacadeApplication(null);
+        }
     }
 
     /**
@@ -62,7 +79,7 @@ final class RepairTest extends TestCase
      */
     public static function repairs(): array
     {
-        $hidden = "\u{200B}\u{200C}\u{200D}\u{200E}\u{200F}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}\u{FEFF}";
+        $hidden = "\u{200B}\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}\u{FEFF}";
 
         return [
             'unwraps a closed markdown fence' => [
@@ -329,6 +346,56 @@ final class RepairTest extends TestCase
                 "***\ntext\n",
                 "***\ntext\n",
                 false,
+            ],
+            'keeps joiners and direction marks' => [
+                "\u{1F468}\u{200D}\u{1F469} mi\u{200C}khaham \u{200E}x\u{200F}\n",
+                "\u{1F468}\u{200D}\u{1F469} mi\u{200C}khaham \u{200E}x\u{200F}\n",
+                false,
+            ],
+            'neutralizes a javascript url in a markdown link' => [
+                "[x](javascript:alert(1)) and ![i](JaVaScRiPt:alert(1) \"t\")\n",
+                "[x](#) and ![i](# \"t\")\n",
+                true,
+            ],
+            'neutralizes vbscript and data html urls in links' => [
+                "[a](vbscript:msgbox) [b](<data:text/html;base64,PHN>) [c](data:image/png;base64,AA)\n",
+                "[a](#) [b](#) [c](data:image/png;base64,AA)\n",
+                true,
+            ],
+            'neutralizes a javascript url in a reference definition and an autolink' => [
+                "[x][r]\n\n[r]: javascript:alert(1)\n\n<javascript:alert(1)> <https://example.com>\n",
+                "[x][r]\n\n[r]: #\n\n# <https://example.com>\n",
+                true,
+            ],
+            'neutralizes javascript urls in href and src attributes' => [
+                "<a href=\"javascript:alert(1)\">a</a> <img src='java\tscript:x'> <a href=&#106;avascript:x>b</a> <a href=\"https://example.com\">c</a>\n",
+                "<a href=\"#\">a</a> <img src=\"#\"> <a href=\"#\">b</a> <a href=\"https://example.com\">c</a>\n",
+                true,
+            ],
+            'leaves an ordinary link alone' => [
+                "[docs](https://example.com/a_(b)) and [mail](mailto:dev@example.com)\n",
+                "[docs](https://example.com/a_(b)) and [mail](mailto:dev@example.com)\n",
+                false,
+            ],
+            'keeps curly quotes inside inline code' => [
+                "He said \u{201C}hi\u{201D} in `echo \u{201C}x\u{201D}` and ``a ` \u{2018}b\u{2019}``\n",
+                "He said \"hi\" in `echo \u{201C}x\u{201D}` and ``a ` \u{2018}b\u{2019}``\n",
+                true,
+            ],
+            'leaves an indented code block alone' => [
+                "Text:\n\n    echo \u{201C}x\u{201D} **y `z\n    | a | b |\n\nafter **bold\n",
+                "Text:\n\n    echo \u{201C}x\u{201D} **y `z\n    | a | b |\n\nafter **bold**\n",
+                true,
+            ],
+            'still strips scripts in an indented code block' => [
+                "Text:\n\n    <script>alert(1)</script>\n",
+                "Text:\n\n    \n",
+                true,
+            ],
+            'repairs indented list continuation as text' => [
+                "- item\n\n    more \u{201C}text\u{201D} **open\n",
+                "- item\n\n    more \"text\" **open**\n",
+                true,
             ],
             'leaves english prose untouched' => [
                 "Hello, this is plain prose.\n",
