@@ -300,6 +300,36 @@ final class RepairTest extends TestCase
                 "A note[^1]\n\n[^1]: The source.\n",
                 false,
             ],
+            'strips a script tag rebuilt from split fragments' => [
+                "<scr<script>ipt>alert(1)</scr<script>ipt>\n",
+                "\n",
+                true,
+            ],
+            'strips an event handler after a slash' => [
+                "<svg/onload=alert(1)>\n<img src=x/onerror=alert(1)>\n",
+                "<svg>\n<img src=x>\n",
+                true,
+            ],
+            'strips an event handler after a quoted > in another attribute' => [
+                "<p title=\"a>b\" onclick=\"x\">Hi</p>\n",
+                "<p title=\"a>b\">Hi</p>\n",
+                true,
+            ],
+            'repairs a table inside a blockquote' => [
+                "> | A | B |\n> | 1 |\n",
+                "> | A | B |\n> | --- | --- |\n> | 1 | |\n",
+                true,
+            ],
+            'does not append bold to a table row' => [
+                "| A | B |\n| **x | y |\n",
+                "| A | B |\n| --- | --- |\n| **x | y |\n",
+                true,
+            ],
+            'does not treat a thematic break as bold' => [
+                "***\ntext\n",
+                "***\ntext\n",
+                false,
+            ],
             'leaves english prose untouched' => [
                 "Hello, this is plain prose.\n",
                 "Hello, this is plain prose.\n",

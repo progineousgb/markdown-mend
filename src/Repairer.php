@@ -204,6 +204,19 @@ final class Repairer
 
     private function stripActiveHtml(string $text): string
     {
+        // Repeat until stable so split tags such as "<scr<script>ipt>" cannot
+        // reassemble into an active tag after one pass.
+        $previous = null;
+        while ($previous !== $text) {
+            $previous = $text;
+            $text = $this->stripActiveHtmlOnce($text);
+        }
+
+        return $text;
+    }
+
+    private function stripActiveHtmlOnce(string $text): string
+    {
         $paired = '/<(script|iframe|object|embed)\b[^>]*>.*?<\/\1\s*>/is';
         $previous = null;
         while ($previous !== $text) {
@@ -223,10 +236,10 @@ final class Repairer
     private function stripEventHandlers(string $text): string
     {
         $stripped = preg_replace_callback(
-            '/<[^>]+>/',
+            '/<[a-z][a-z0-9:-]*(?:"[^"]*"|\'[^\']*\'|[^"\'>])*>/i',
             static function (array $match): string {
                 $tag = preg_replace(
-                    '/\s+on[a-z0-9]+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\'=<>`]+)/i',
+                    '/[\s\/]+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\'=<>`]+)/i',
                     '',
                     $match[0]
                 );
@@ -332,10 +345,10 @@ final class Repairer
 
     private function separatorFor(string $header, int $columns): string
     {
-        preg_match('/^( *)/', $header, $indent);
+        preg_match('/^((?:[ \t]*>)*[ \t]*)/', $header, $indent);
         $cells = array_fill(0, $columns, '---');
         $body = implode(' | ', $cells);
-        if (str_starts_with(trim($header), '|')) {
+        if (str_starts_with(ltrim(substr($header, strlen($indent[1]))), '|')) {
             return $indent[1] . '| ' . $body . ' |';
         }
 
@@ -360,7 +373,7 @@ final class Repairer
      */
     private function splitCells(string $line): array
     {
-        $trim = trim($line);
+        $trim = trim((string) preg_replace('/^(?:[ \t]*>)+/', '', $line));
         $starts = str_starts_with($trim, '|');
         $ends = str_ends_with($trim, '|');
         $parts = explode('|', $trim);
@@ -451,7 +464,7 @@ final class Repairer
 
             $end = $index - 1;
             $paragraph = implode("\n", array_slice($lines, $start, $end - $start + 1));
-            if ($this->boldMarkerCount($paragraph) % 2 === 1) {
+            if ($this->boldMarkerCount($paragraph) % 2 === 1 && !str_contains($lines[$end], '|')) {
                 $lines[$end] .= '**';
             }
         }
@@ -461,6 +474,8 @@ final class Repairer
 
     private function boldMarkerCount(string $text): int
     {
+        // A thematic break such as "***" or "* * *" is not emphasis.
+        $text = (string) preg_replace('/^ {0,3}(?:\*[ \t]*){3,}$/m', '', $text);
         $text = $this->withoutPairedCodeSpans($text);
         $count = 0;
         $length = strlen($text);
