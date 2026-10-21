@@ -255,8 +255,21 @@ final class Repairer
         }
 
         $stripped = preg_replace('/<\/?(?:script|iframe|object|embed)\b[^>]*>/i', '', $text);
+        $text = is_string($stripped) ? $stripped : $text;
 
-        return $this->stripEventHandlers(is_string($stripped) ? $stripped : $text);
+        // <meta> (refresh redirects), <base>, <link>, and <style> change how the
+        // whole page loads or looks. Inline code spans are left as written.
+        $text = $this->mapOutsideCodeSpans($text, static function (string $part): string {
+            $result = preg_replace(
+                ['/<style\b[^>]*>.*?<\/style\s*>/is', '/<\/?(?:meta|base|link|style)\b[^>]*>/i'],
+                '',
+                $part
+            );
+
+            return is_string($result) ? $result : $part;
+        });
+
+        return $this->stripEventHandlers($text);
     }
 
     /**

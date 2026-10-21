@@ -282,6 +282,21 @@ final class RepairTest extends TestCase
                 "Hello\n\n<p>Hi</p>\n\n\n\n",
                 true,
             ],
+            'strips meta refresh base link and style' => [
+                "Hi\n<meta http-equiv=\"refresh\" content=\"0;url=https://evil.test\">\n<base href=\"https://evil.test/\">\n<link rel=\"stylesheet\" href=\"https://evil.test/x.css\">\n<style>\nbody{display:none}\n</style>\nBye\n",
+                "Hi\n\n\n\n\nBye\n",
+                true,
+            ],
+            'strips mixed case head tags' => [
+                "<META HTTP-EQUIV=refresh CONTENT=0><BASE HREF=/x><Style>p{}</STYLE >ok\n",
+                "ok\n",
+                true,
+            ],
+            'keeps head tags inside inline code' => [
+                "Use `<meta http-equiv=\"refresh\">` and `<style>p{}</style>` here.\n",
+                "Use `<meta http-equiv=\"refresh\">` and `<style>p{}</style>` here.\n",
+                false,
+            ],
             'keeps an ordinary html paragraph' => [
                 "<p>Hello</p>\n",
                 "<p>Hello</p>\n",

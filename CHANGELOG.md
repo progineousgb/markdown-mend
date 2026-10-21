@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.1 (2026-10-22)
+
+- Strip `meta` (refresh redirects), `base`, `link`, and `style` tags. Inline code spans are left as written.
+
 ## v1.0.0 (2026-10-21)
 
 First tagged release. Repair broken markdown from language models before it is rendered.
