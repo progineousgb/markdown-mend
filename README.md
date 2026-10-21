@@ -16,6 +16,7 @@ The repair engine is plain PHP. It does not call a language model and it does no
 - delete hidden characters that can disguise or reorder text, including inside fences: U+200B (zero-width space), U+202A to U+202E (bidi embeddings and overrides), U+2066 to U+2069 (bidi isolates), and U+FEFF (byte order mark)
 - turn the bullets U+2022 and U+25CF into `- ` lists, and turn Arabic-Indic list numbers (U+0660 to U+0669, for example U+0661 followed by `.`) into `1.`, `2.`, and so on
 - remove `script`, `iframe`, `object`, and `embed` tags, and remove `on*` event attributes
+- remove `meta` (including refresh redirects), `base`, `link`, and `style` tags outside inline code spans
 - replace `javascript:`, `vbscript:`, and `data:text/html` URLs with `#` in markdown links and images, link reference definitions, autolinks, and `href`, `src`, and similar HTML attributes
 
 What is kept:
